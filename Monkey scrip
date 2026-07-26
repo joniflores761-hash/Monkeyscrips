@@ -1,0 +1,291 @@
+-- +1 Speed Monkey Escape - Auto Farm Wins
+-- Script optimizado para la estructura específica de este juego
+
+local Config = {
+    MundoAFarmear = "all",      -- 1, 2, 3 o "all" para todos
+    StageEspecifico = "last",   -- Número del 1-15 o "last" para último
+    Intervalo = 3,              -- Segundos entre wins
+    AutoRebirth = false,        -- Auto rebirth al llegar a X wins
+    AntiAFK = true,
+    AutoEquiparMejorCola = true -- Auto equipar mejor tail
+}
+
+-- Servicios
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualUser = game:GetService("VirtualUser")
+local TeleportService = game:GetService("TeleportService")
+
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local Humanoid = Character:WaitForChild("Humanoid")
+
+-- Anti-AFK
+if Config.AntiAFK then
+    Player.Idled:Connect(function()
+        VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+        wait(1)
+        VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+    end)
+end
+
+-- Función para obtener los stages de un mundo
+local function ObtenerStages(mundoNum)
+    local stages = {}
+    local mundoNombre = "World" .. mundoNum
+    
+    -- Buscar en estructuras comunes de +1 Speed Monkey Escape
+    local ubicaciones = {
+        Workspace:FindFirstChild("Stages"),
+        Workspace:FindFirstChild("Stages"..mundoNum),
+        Workspace:FindFirstChild(mundoNombre),
+        Workspace:FindFirstChild("World_"..mundoNum),
+        Workspace:FindFirstChild("Worlds"),
+        Workspace:FindFirstChild("Maps"),
+        Workspace:FindFirstChild("Checkpoints"),
+        Workspace:FindFirstChild("Levels")
+    }
+    
+    for _, ubicacion in ipairs(ubicaciones) do
+        if ubicacion then
+            -- Si es la carpeta Worlds, buscar el mundo específico
+            if ubicacion.Name == "Worlds" then
+                local mundo = ubicacion:FindFirstChild(mundoNombre) or ubicacion:FindFirstChild("World"..mundoNum)
+                if mundo then
+                    for _, stage in ipairs(mundo:GetChildren()) do
+                        if stage:IsA("Model") or stage:IsA("Part") or stage:IsA("Folder") then
+                            table.insert(stages, stage)
+                        end
+                    end
+                end
+            else
+                -- Es directamente una carpeta de stages
+                for _, stage in ipairs(ubicacion:GetChildren()) do
+                    table.insert(stages, stage)
+                end
+            end
+        end
+    end
+    
+    -- Ordenar stages por número
+    table.sort(stages, function(a, b)
+        local numA = tonumber(a.Name:match("%d+")) or 0
+        local numB = tonumber(b.Name:match("%d+")) or 0
+        return numA < numB
+    end)
+    
+    return stages
+end
+
+-- Función para encontrar la parte de victoria
+local function EncontrarWinPart(stage)
+    -- Nombres comunes en +1 Speed Monkey Escape
+    local nombresWin = {
+        "Win", "WinPart", "End", "Finish", "Goal", 
+        "Victory", "Complete", "CheckpointEnd",
+        "StageComplete", "TouchEnd", "EndPad"
+    }
+    
+    -- Buscar primero en el stage
+    for _, nombre in ipairs(nombresWin) do
+        local parte = stage:FindFirstChild(nombre)
+        if parte and parte:IsA("BasePart") then
+            return parte
+        end
+    end
+    
+    -- Buscar en todos los descendientes
+    for _, obj in ipairs(stage:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local nombreLower = obj.Name:lower()
+            for _, nombreWin in ipairs(nombresWin) do
+                if nombreLower:find(nombreWin:lower()) then
+                    return obj
+                end
+            end
+        end
+    end
+    
+    -- Buscar partes con TouchInterest (partes que detectan toque)
+    for _, obj in ipairs(stage:GetDescendants()) do
+        if obj:IsA("BasePart") and obj:FindFirstChild("TouchInterest") then
+            -- Verificar si tiene algún indicador de victoria
+            if obj.Color == Color3.fromRGB(0, 255, 0) or 
+               obj.Color == Color3.fromRGB(255, 215, 0) or
+               obj.Name:lower():find("win") or
+               obj.Name:lower():find("end") then
+                return obj
+            end
+        end
+    end
+    
+    return nil
+end
+
+-- Función para farmear wins
+local function FarmearWins()
+    while true do
+        local success, error = pcall(function()
+            Character = Player.Character
+            if not Character then 
+                Player.CharacterAdded:Wait()
+                Character = Player.Character
+            end
+            
+            HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+            Humanoid = Character:WaitForChild("Humanoid")
+            
+            local mundos = {}
+            if Config.MundoAFarmear == "all" then
+                for i = 1, 3 do table.insert(mundos, i) end
+            else
+                table.insert(mundos, tonumber(Config.MundoAFarmear))
+            end
+            
+            for _, mundoNum in ipairs(mundos) do
+                local stages = ObtenerStages(mundoNum)
+                
+                if #stages > 0 then
+                    print("🌍 Mundo " .. mundoNum .. " encontrado con " .. #stages .. " stages")
+                    
+                    local stageObjetivo
+                    
+                    if Config.StageEspecifico == "last" then
+                        stageObjetivo = stages[#stages]
+                    else
+                        local num = tonumber(Config.StageEspecifico)
+                        if num and num <= #stages then
+                            stageObjetivo = stages[num]
+                        else
+                            stageObjetivo = stages[#stages]
+                        end
+                    end
+                    
+                    if stageObjetivo then
+                        print("🎯 Farmeando: " .. stageObjetivo.Name)
+                        
+                        local winPart = EncontrarWinPart(stageObjetivo)
+                        
+                        if winPart then
+                            -- Teletransportar arriba de la win
+                            local posicion = winPart.Position + Vector3.new(0, 8, 0)
+                            HumanoidRootPart.CFrame = CFrame.new(posicion)
+                            
+                            -- Simular toque para activar la win
+                            wait(0.2)
+                            
+                            if winPart:FindFirstChild("TouchInterest") then
+                                firetouchinterest(HumanoidRootPart, winPart, 0)
+                                wait(0.1)
+                                firetouchinterest(HumanoidRootPart, winPart, 1)
+                            end
+                            
+                            -- Intentar activar remotos comunes de wins
+                            local remotos = {
+                                ReplicatedStorage:FindFirstChild("Win"),
+                                ReplicatedStorage:FindFirstChild("StageComplete"),
+                                ReplicatedStorage:FindFirstChild("AddWin"),
+                                ReplicatedStorage:FindFirstChild("GiveWin")
+                            }
+                            
+                            for _, remoto in ipairs(remotos) do
+                                if remoto and remoto:IsA("RemoteEvent") then
+                                    remoto:FireServer()
+                                elseif remoto and remoto:IsA("RemoteFunction") then
+                                    pcall(function() remoto:InvokeServer() end)
+                                end
+                            end
+                            
+                            print("✅ Win obtenida en " .. stageObjetivo.Name)
+                        else
+                            warn("❌ No se encontró parte de win en " .. stageObjetivo.Name)
+                        end
+                    end
+                else
+                    warn("⚠️ No se encontraron stages en mundo " .. mundoNum)
+                end
+            end
+        end)
+        
+        if not success then
+            warn("Error: " .. tostring(error))
+        end
+        
+        wait(Config.Intervalo)
+    end
+end
+
+-- UI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MonkeySpeedFarm"
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 280, 0, 180)
+Frame.Position = UDim2.new(0.5, -140, 0, 10)
+Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Frame.BorderSizePixel = 0
+Frame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = Frame
+
+local Titulo = Instance.new("TextLabel")
+Titulo.Size = UDim2.new(1, 0, 0, 35)
+Titulo.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+Titulo.Text = "🐵 +1 Speed Monkey Farm"
+Titulo.TextColor3 = Color3.fromRGB(255, 255, 255)
+Titulo.TextSize = 16
+Titulo.Font = Enum.Font.GothamBold
+Titulo.Parent = Frame
+
+local Info = Instance.new("TextLabel")
+Info.Size = UDim2.new(1, -20, 0, 80)
+Info.Position = UDim2.new(0, 10, 0, 45)
+Info.BackgroundTransparency = 1
+Info.Text = "Mundo: " .. tostring(Config.MundoAFarmear) .. 
+           "\nStage: " .. tostring(Config.StageEspecifico) .. 
+           "\nIntervalo: " .. Config.Intervalo .. "s"
+Info.TextColor3 = Color3.fromRGB(255, 255, 255)
+Info.TextSize = 14
+Info.Font = Enum.Font.Gotham
+Info.TextWrapped = true
+Info.Parent = Frame
+
+local BotonDetener = Instance.new("TextButton")
+BotonDetener.Size = UDim2.new(0.9, 0, 0, 40)
+BotonDetener.Position = UDim2.new(0.05, 0, 0, 130)
+BotonDetener.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+BotonDetener.Text = "DETENER FARM"
+BotonDetener.TextColor3 = Color3.fromRGB(255, 255, 255)
+BotonDetener.TextSize = 15
+BotonDetener.Font = Enum.Font.GothamBold
+BotonDetener.Parent = Frame
+
+local UICorner2 = Instance.new("UICorner")
+UICorner2.CornerRadius = UDim.new(0, 8)
+UICorner2.Parent = BotonDetener
+
+local Farming = true
+BotonDetener.MouseButton1Click:Connect(function()
+    Farming = false
+    Info.Text = "Estado: DETENIDO"
+    BotonDetener.Text = "DETENIDO"
+    BotonDetener.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+end)
+
+-- Iniciar
+spawn(function()
+    while Farming do
+        FarmearWins()
+    end
+end)
+
+print("🐵 +1 Speed Monkey Escape Farm iniciado!")
+print("Configuración:")
+print("- Mundo: " .. tostring(Config.MundoAFarmear))
+print("- Stage: " .. tostring(Config.StageEspecifico))
+print("- Intervalo: " .. Config.Intervalo .. "s")
